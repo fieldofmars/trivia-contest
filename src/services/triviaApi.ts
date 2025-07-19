@@ -10,11 +10,35 @@ const TOKEN_URL = 'https://opentdb.com/api_token.php'
 
 export class TriviaApiService {
   private static sessionToken: string | null = null
+  private static MAX_RETRIES = 3
+  private static BASE_DELAY = 1000 // 1 second initial delay
 
-  // Retrieve a new session token
-  static async getSessionToken(): Promise<string> {
+  // Exponential backoff delay calculation
+  private static calculateDelay(retryCount: number): number {
+    return this.BASE_DELAY * Math.pow(2, retryCount)
+  }
+
+  // Delay utility function
+  private static delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
+  // Retrieve a new session token with retry
+  static async getSessionToken(retryCount = 0): Promise<string> {
     try {
       const response = await fetch(`${TOKEN_URL}?command=request`)
+      
+      if (!response.ok) {
+        // Check for rate limiting
+        if (response.status === 429 && retryCount < this.MAX_RETRIES) {
+          const delayTime = this.calculateDelay(retryCount)
+          console.warn(`Rate limited. Retrying in ${delayTime}ms...`)
+          await this.delay(delayTime)
+          return this.getSessionToken(retryCount + 1)
+        }
+        throw new Error(`Token request failed: ${response.status}`)
+      }
+
       const data: SessionTokenResponse = await response.json()
       
       if (data.response_code === 0 && data.token) {
@@ -29,12 +53,13 @@ export class TriviaApiService {
     }
   }
 
-  // Fetch trivia questions
+  // Fetch trivia questions with advanced retry mechanism
   static async fetchQuestions(
     amount: number = 10, 
     difficulty?: Difficulty, 
     type?: QuestionType,
-    category?: number
+    category?: number,
+    retryCount = 0
   ): Promise<TriviaApiResponse> {
     // Ensure we have a session token
     if (!this.sessionToken) {
@@ -61,6 +86,17 @@ export class TriviaApiService {
     try {
       const response = await fetch(`${BASE_URL}?${params.toString()}`)
       
+      // Handle rate limiting with exponential backoff
+      if (response.status === 429) {
+        if (retryCount < this.MAX_RETRIES) {
+          const delayTime = this.calculateDelay(retryCount)
+          console.warn(`Rate limited. Retrying in ${delayTime}ms...`)
+          await this.delay(delayTime)
+          return this.fetchQuestions(amount, difficulty, type, category, retryCount + 1)
+        }
+        throw new Error('Max retries reached. API is rate-limiting requests.')
+      }
+
       // Check if response is ok
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
