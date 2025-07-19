@@ -12,6 +12,7 @@ export class TriviaApiService {
   private static sessionToken: string | null = null
   private static MAX_RETRIES = 3
   private static BASE_DELAY = 1000 // 1 second initial delay
+  private static lastFetchTimestamp: number | null = null
 
   // Exponential backoff delay calculation
   private static calculateDelay(retryCount: number): number {
@@ -23,9 +24,21 @@ export class TriviaApiService {
     return new Promise(resolve => setTimeout(resolve, ms))
   }
 
+  // Prevent rapid successive calls
+  private static preventRapidCalls() {
+    const now = Date.now()
+    if (this.lastFetchTimestamp && now - this.lastFetchTimestamp < 2000) {
+      console.warn('Preventing rapid API calls')
+      throw new Error('Too many rapid API calls')
+    }
+    this.lastFetchTimestamp = now
+  }
+
   // Retrieve a new session token with retry
   static async getSessionToken(retryCount = 0): Promise<string> {
     try {
+      this.preventRapidCalls()
+
       const response = await fetch(`${TOKEN_URL}?command=request`)
       
       if (!response.ok) {
@@ -61,29 +74,26 @@ export class TriviaApiService {
     category?: number,
     retryCount = 0
   ): Promise<TriviaApiResponse> {
-    // Ensure we have a session token
-    if (!this.sessionToken) {
-      try {
-        await this.getSessionToken()
-      } catch (tokenError) {
-        console.error('Token Retrieval Failed:', tokenError)
-        throw new Error('Could not obtain session token')
-      }
-    }
-
-    // Construct query parameters
-    const params = new URLSearchParams({
-      amount: amount.toString(),
-      token: this.sessionToken || '',
-      encode: 'url3986' // Use URL encoding to handle special characters
-    })
-
-    // Add optional parameters
-    if (difficulty) params.append('difficulty', difficulty)
-    if (type) params.append('type', type)
-    if (category) params.append('category', category.toString())
-
     try {
+      this.preventRapidCalls()
+
+      // Ensure we have a session token
+      if (!this.sessionToken) {
+        await this.getSessionToken()
+      }
+
+      // Construct query parameters
+      const params = new URLSearchParams({
+        amount: amount.toString(),
+        token: this.sessionToken || '',
+        encode: 'url3986' // Use URL encoding to handle special characters
+      })
+
+      // Add optional parameters
+      if (difficulty) params.append('difficulty', difficulty)
+      if (type) params.append('type', type)
+      if (category) params.append('category', category.toString())
+
       const response = await fetch(`${BASE_URL}?${params.toString()}`)
       
       // Handle rate limiting with exponential backoff
@@ -141,6 +151,8 @@ export class TriviaApiService {
     if (!this.sessionToken) return
 
     try {
+      this.preventRapidCalls()
+
       const response = await fetch(`${TOKEN_URL}?command=reset&token=${this.sessionToken}`)
       const data: SessionTokenResponse = await response.json()
 
@@ -156,6 +168,8 @@ export class TriviaApiService {
   // Fetch available categories
   static async fetchCategories(): Promise<{id: number, name: string}[]> {
     try {
+      this.preventRapidCalls()
+
       const response = await fetch('https://opentdb.com/api_category.php')
       const data = await response.json()
       return data.trivia_categories
