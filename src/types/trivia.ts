@@ -32,11 +32,21 @@ export interface SessionTokenResponse {
   token?: string
 }
 
-// Utility function to decode HTML entities
+// Improved decoding function
 export function decodeHtmlEntities(text: string): string {
-  const textArea = document.createElement('textarea')
-  textArea.innerHTML = text
-  return textArea.value
+  try {
+    // First, try decoding URL-encoded text
+    const urlDecoded = decodeURIComponent(text)
+    
+    // Create a temporary element to decode HTML entities
+    const tempElement = document.createElement('textarea')
+    tempElement.innerHTML = urlDecoded
+    
+    return tempElement.value
+  } catch (error) {
+    console.error('Decoding error:', error)
+    return text // Return original text if decoding fails
+  }
 }
 
 // Shuffle array utility (for randomizing answer order)

@@ -23,24 +23,31 @@ function App() {
     async function loadQuestions() {
       try {
         setIsLoading(true)
+        setError(null)
+        
         const response = await TriviaApiService.fetchQuestions(
           10, 
           Difficulty.Medium
         )
         
-        // Prepare questions with shuffled answers
+        // Prepare questions with shuffled answers and decoded content
         const preparedQuestions = response.results.map(q => ({
           ...q,
+          category: decodeHtmlEntities(q.category),
+          question: decodeHtmlEntities(q.question),
+          correct_answer: decodeHtmlEntities(q.correct_answer),
+          incorrect_answers: q.incorrect_answers.map(decodeHtmlEntities),
           all_answers: shuffleArray([
-            ...q.incorrect_answers, 
-            q.correct_answer
+            ...q.incorrect_answers.map(decodeHtmlEntities), 
+            decodeHtmlEntities(q.correct_answer)
           ])
         }))
 
         setQuestions(preparedQuestions)
         setIsLoading(false)
       } catch (err) {
-        setError('Failed to load questions')
+        console.error('Question Loading Error:', err)
+        setError(err instanceof Error ? err.message : 'Failed to load questions')
         setIsLoading(false)
       }
     }
@@ -68,6 +75,12 @@ function App() {
     }
   }
 
+  // Retry loading questions
+  const handleRetry = () => {
+    setError(null)
+    setIsLoading(true)
+  }
+
   // Render loading state
   if (isLoading) {
     return (
@@ -80,8 +93,17 @@ function App() {
   // Render error state
   if (error) {
     return (
-      <div className="min-h-screen bg-red-100 flex items-center justify-center">
-        <div className="text-red-600 text-2xl">{error}</div>
+      <div className="min-h-screen bg-red-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-8 text-center">
+          <div className="text-red-600 text-2xl mb-4">Error Loading Trivia</div>
+          <p className="text-gray-700 mb-6">{error}</p>
+          <button 
+            onClick={handleRetry}
+            className="bg-blue-500 text-white py-2 px-6 rounded-lg hover:bg-blue-600 transition-colors"
+          >
+            Try Again
+          </button>
+        </div>
       </div>
     )
   }
@@ -102,10 +124,10 @@ function App() {
       <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-8">
         <div className="mb-6">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">
-            {decodeHtmlEntities(currentQuestion.category)}
+            {currentQuestion.category}
           </h2>
           <p className="text-2xl font-bold text-gray-900 mb-6">
-            {decodeHtmlEntities(currentQuestion.question)}
+            {currentQuestion.question}
           </p>
         </div>
 
@@ -125,7 +147,7 @@ function App() {
               `}
               disabled={!!selectedAnswer}
             >
-              {decodeHtmlEntities(answer)}
+              {answer}
             </button>
           ))}
         </div>

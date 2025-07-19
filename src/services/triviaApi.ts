@@ -13,15 +13,20 @@ export class TriviaApiService {
 
   // Retrieve a new session token
   static async getSessionToken(): Promise<string> {
-    const response = await fetch(`${TOKEN_URL}?command=request`)
-    const data: SessionTokenResponse = await response.json()
-    
-    if (data.response_code === 0 && data.token) {
-      this.sessionToken = data.token
-      return data.token
+    try {
+      const response = await fetch(`${TOKEN_URL}?command=request`)
+      const data: SessionTokenResponse = await response.json()
+      
+      if (data.response_code === 0 && data.token) {
+        this.sessionToken = data.token
+        return data.token
+      }
+      
+      throw new Error('Failed to retrieve session token')
+    } catch (error) {
+      console.error('Session Token Error:', error)
+      throw error
     }
-    
-    throw new Error('Failed to retrieve session token')
   }
 
   // Fetch trivia questions
@@ -33,7 +38,12 @@ export class TriviaApiService {
   ): Promise<TriviaApiResponse> {
     // Ensure we have a session token
     if (!this.sessionToken) {
-      await this.getSessionToken()
+      try {
+        await this.getSessionToken()
+      } catch (tokenError) {
+        console.error('Token Retrieval Failed:', tokenError)
+        throw new Error('Could not obtain session token')
+      }
     }
 
     // Construct query parameters
@@ -50,20 +60,42 @@ export class TriviaApiService {
 
     try {
       const response = await fetch(`${BASE_URL}?${params.toString()}`)
+      
+      // Check if response is ok
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
       const data: TriviaApiResponse = await response.json()
+
+      // Log the raw response for debugging
+      console.log('API Response:', data)
 
       // Handle different response codes
       switch (data.response_code) {
         case 0: // Success
+          // Validate that we have results
+          if (!data.results || data.results.length === 0) {
+            throw new Error('No questions returned')
+          }
           return data
-        case 4: // Token empty, reset token
+        case 1:
+          throw new Error('No Results: Not enough questions')
+        case 2:
+          throw new Error('Invalid Parameter')
+        case 3:
+          throw new Error('Token Not Found')
+        case 4:
+          // Token empty, reset token
           await this.resetSessionToken()
           return this.fetchQuestions(amount, difficulty, type, category)
+        case 5:
+          throw new Error('Rate Limited')
         default:
-          throw new Error(`API Error: ${data.response_code}`)
+          throw new Error(`Unknown API Error: ${data.response_code}`)
       }
     } catch (error) {
-      console.error('Trivia API Error:', error)
+      console.error('Trivia API Fetch Error:', error)
       throw error
     }
   }
@@ -72,18 +104,28 @@ export class TriviaApiService {
   static async resetSessionToken(): Promise<void> {
     if (!this.sessionToken) return
 
-    const response = await fetch(`${TOKEN_URL}?command=reset&token=${this.sessionToken}`)
-    const data: SessionTokenResponse = await response.json()
+    try {
+      const response = await fetch(`${TOKEN_URL}?command=reset&token=${this.sessionToken}`)
+      const data: SessionTokenResponse = await response.json()
 
-    if (data.response_code !== 0) {
-      throw new Error('Failed to reset session token')
+      if (data.response_code !== 0) {
+        throw new Error('Failed to reset session token')
+      }
+    } catch (error) {
+      console.error('Reset Token Error:', error)
+      throw error
     }
   }
 
   // Fetch available categories
   static async fetchCategories(): Promise<{id: number, name: string}[]> {
-    const response = await fetch('https://opentdb.com/api_category.php')
-    const data = await response.json()
-    return data.trivia_categories
+    try {
+      const response = await fetch('https://opentdb.com/api_category.php')
+      const data = await response.json()
+      return data.trivia_categories
+    } catch (error) {
+      console.error('Fetch Categories Error:', error)
+      throw error
+    }
   }
 }
